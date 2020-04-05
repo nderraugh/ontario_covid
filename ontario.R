@@ -17,7 +17,7 @@ leaflet(on_geojson) %>%
   addCircleMarkers(
     d$Reporting_PHU_Longitude, 
     d$Reporting_PHU_Latitude, 
-    d$case_count/mean(d$case_count)*1.5, 
+    d$case_count/mean(d$case_count), 
     popup = d$Reporting_PHU_City,
     fill=TRUE,
     fillOpacity = 0.5
