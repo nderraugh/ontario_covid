@@ -1,51 +1,61 @@
+library(plyr)
 library(dplyr)
 library(leaflet)
+library(RCurl)
+library(RJSONIO)
 library(purrr)
-library(geonames)
-options(geonamesUsername="nderraugh")
-
-lon <- 48.955269
-lat <- -84.741725
-
-# https://data.ontario.ca/en/dataset/confirmed-positive-cases-of-covid-19-in-ontario
-on_geojson <- rgdal::readOGR("https://data.ontario.ca/dataset/f4112442-bdc8-45d2-be3c-12efae72fb27/resource/4f39b02b-47fe-4e66-95b6-e6da879c6910/download/conposcovidloc.geojson") #"json/conposcovidloc.geojson")
-
-
 library(readr)
-cases <- read_csv("src/nderraugh/ontario_covid/cases.csv", skip = 3) %>% filter(province == "Ontario")
 
-findPHU <- function(name) { 
-  res <- GNsearch(name_equals = name, adminCode1 = "08", country = "CA")
-  res %>% select(name, lat, lng)
-}
+lon <- 56.130366
+lat <- -106.346771
+
+cases <- read_csv("src/nderraugh/ontario_covid/cases.csv", skip = 3)
 
 phus <- cases %>% distinct(health_region, province)
 
-i <- 4; findPHU(phus[i,1])
-
-c("Algoma", 47.833092, -83.640780)
-
-for(i in 1:nrow(phus)) {
-  print(findPHU(phus[i,1], phus[i,2]))
+url <- function(address, return.call = "json", sensor = "false") {
+  root <- "https://maps.googleapis.com/maps/api/geocode/"
+  u <- paste(root, return.call, "?address=", address, "&sensor=", sensor, "&key=", Sys.getenv("GOOGLE_MAPS_API_KEY"),  sep = "")
+  return(URLencode(u))
 }
-"Algoma"
-  #findPHU(row$health_region, row$province)
 
+geoCode <- function(address, verbose=FALSE) {
+  if(verbose) cat(address,"\n")
+  u <- url(address)
+  print(u)
+  doc <- getURL(u)
+  x <- fromJSON(doc,simplify = FALSE)
+  #print(x$status)
+  if(x$status=="OK") {
+    lat <- x$results[[1]]$geometry$location$lat
+    lng <- x$results[[1]]$geometry$location$lng
+    location_type <- x$results[[1]]$geometry$location_type
+    formatted_address <- x$results[[1]]$formatted_address
+    return(c(lat=lat, lon=lng, loc_type=location_type, address=formatted_address))
+  } else {
+    return(c(NA,NA,NA, NA))
+  }
+}
 
+f <- function(a, b) {
+  c(health_region=a, 
+    province=b, 
+    geoCode(paste(a, b, "Canada", sep=",")), T)
+}
 
-# https://data.ontario.ca/en/dataset/confirmed-positive-cases-of-covid-19-in-ontario/resource/455fd63b-603d-4608-8216-7d8647f43350
+phus_lat_lon <- ldply(map2(phus$health_region, phus$province, f))
 
-d <- on_geojson@data 
+d <- inner_join(cases, phus_lat_lon) %>% mutate(lat = as.numeric(lat), lon=as.numeric(lon))
 
-leaflet(on_geojson) %>% 
+leaflet() %>% 
   addTiles() %>% 
-  setView(lat, lon, zoom = 5) %>% 
+  setView(lat, lon, zoom = 4) %>% 
   addCircleMarkers(
-    d$Reporting_PHU_Longitude, 
-    d$Reporting_PHU_Latitude, 
-    popup = d$Reporting_PHU_City,
+    d$lon, 
+    d$lat, 
+    popup = d$health_region,
     fill=TRUE,
     fillOpacity = 0.5,
     stroke = 0,
     clusterOptions = markerClusterOptions(spiderfyOnMaxZoom=F)
-    )
+  )
